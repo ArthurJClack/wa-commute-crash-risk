@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WA Commute Crash Risk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800;900&family=Overpass+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --bg:#eef1ef; --panel:#fbfcfb; --ink:#14201b; --muted:#5b6a63; --line:#d5ddd9;
+  --sign:#0b6b45; --sign-ink:#ffffff; --amber:#e5a100; --red:#c8321f; --ok:#2f8a4e; --warn:#c77a00;
+  --chip:#e3eae6; --field:#ffffff;
+  --f-display:"Overpass","Arial Narrow",Arial,sans-serif;
+  --f-body:"Overpass",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"Overpass Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1513; --panel:#161e1b; --ink:#e6eeea; --muted:#93a39b; --line:#2a3631;
+  --sign:#14915f; --sign-ink:#ffffff; --amber:#f2b82e; --red:#ef5b45; --ok:#4cbf75; --warn:#f0a43a;
+  --chip:#222d29; --field:#0f1513; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1513; --panel:#161e1b; --ink:#e6eeea; --muted:#93a39b; --line:#2a3631;
+  --sign:#14915f; --sign-ink:#ffffff; --amber:#f2b82e; --red:#ef5b45; --ok:#4cbf75; --warn:#f0a43a;
+  --chip:#222d29; --field:#0f1513; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-body);display:flex;flex-direction:column}
+header{background:var(--sign);color:var(--sign-ink);padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;border-bottom:3px solid var(--amber)}
+header .shield{border:2px solid var(--sign-ink);border-radius:6px;padding:2px 8px;font:900 13px/1.2 var(--f-display);letter-spacing:.06em}
+header h1{font:900 22px/1.1 var(--f-display);margin:0;letter-spacing:.01em}
+header .sub{font-size:13px;opacity:.85}
+header .status{margin-left:auto;font:12px var(--f-mono);opacity:.9}
+.app{flex:1;display:grid;grid-template-columns:400px 1fr;min-height:0}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;min-width:0}
+#map{min-height:300px;background:var(--bg)}
+.tabs{display:flex;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:5}
+.tabs button{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:11px 6px;font:700 13px var(--f-display);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--amber)}
+.tabs button:focus-visible{outline:2px solid var(--sign);outline-offset:-2px}
+.pane{padding:16px;display:flex;flex-direction:column;gap:16px}
+.group{display:flex;flex-direction:column;gap:8px}
+.group h2{font:800 12px var(--f-display);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:0}
+label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+input,select{font:15px var(--f-body);color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:6px;padding:8px 10px;width:100%}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--sign);outline-offset:1px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.addr{position:relative;display:flex;gap:6px;align-items:flex-end}
+.addr label{flex:1}
+.pin{flex:none;width:38px;height:38px;border-radius:6px;border:1px solid var(--line);background:var(--chip);color:var(--ink);cursor:pointer;font:800 14px var(--f-display)}
+.pin.active{background:var(--amber);color:#1a1300;border-color:var(--amber)}
+.sugg{position:absolute;left:0;right:44px;top:100%;background:var(--panel);border:1px solid var(--line);border-radius:6px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.18);max-height:240px;overflow:auto}
+.sugg button{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;font:14px var(--f-body);color:var(--ink);cursor:pointer;border-bottom:1px solid var(--line)}
+.sugg button:hover,.sugg button:focus{background:var(--chip)}
+.sugg small{color:var(--muted)}
+.go{background:var(--sign);color:var(--sign-ink);border:0;border-radius:6px;padding:12px;font:800 15px var(--f-display);letter-spacing:.04em;cursor:pointer}
+.go:disabled{opacity:.6;cursor:wait}
+.note{font-size:12px;color:var(--muted)}
+.err{color:var(--red);font-size:13px}
+
+.verdict{border:2px solid var(--line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.verdict .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.badge{font:900 13px var(--f-display);letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;border-radius:4px;color:#fff}
+.b-low{background:var(--ok)} .b-avg{background:var(--sign)} .b-elev{background:var(--warn)} .b-high{background:var(--red)}
+.verdict .route{font-size:13px;color:var(--muted)}
+.big{font:900 40px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.big small{font:600 15px var(--f-body);color:var(--muted)}
+table.odds{width:100%;border-collapse:collapse;font-size:13px}
+table.odds th{font:700 11px var(--f-display);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);text-align:right;padding:4px 0 6px;border-bottom:1px solid var(--line)}
+table.odds th:first-child,table.odds td:first-child{text-align:left}
+table.odds td{padding:7px 0;text-align:right;font:13px var(--f-mono);font-variant-numeric:tabular-nums;border-bottom:1px solid var(--line)}
+table.odds td:first-child{font:600 13px var(--f-body)}
+.alts{display:flex;gap:6px;flex-wrap:wrap}
+.alts button{background:var(--chip);border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:5px 11px;font:600 12px var(--f-body);cursor:pointer}
+.alts button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.factors{display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:13px}
+.factors span:nth-child(even){font:600 13px var(--f-mono);text-align:right}
+.up{color:var(--red)} .down{color:var(--ok)}
+.hot{display:flex;flex-direction:column;gap:6px}
+.hot button{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;text-align:left;background:none;border:1px solid var(--line);border-radius:6px;padding:8px 10px;color:var(--ink);cursor:pointer;font:13px var(--f-body)}
+.hot button:hover{border-color:var(--red)}
+.hot .mi{font:700 12px var(--f-mono);color:var(--muted)}
+.hot .n{font:800 13px var(--f-mono);color:var(--red)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips label{flex-direction:row;align-items:center;gap:6px;background:var(--chip);border-radius:999px;padding:5px 10px;color:var(--ink);font-size:13px;cursor:pointer}
+.chips input{width:auto;margin:0}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.stat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat div{background:var(--chip);border-radius:6px;padding:8px}
+.stat b{display:block;font:900 20px var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+svg text{fill:var(--muted);font:10px var(--f-mono)}
+.method p,.method li{font-size:13.5px;max-width:65ch}
+.method h3{font:800 14px var(--f-display);margin:8px 0 0}
+.method ul{padding-left:18px;margin:4px 0}
+.method a{color:var(--sign)}
+.leaflet-popup-content{font:13px/1.4 var(--f-body)}
+.leaflet-popup-content b{font-family:var(--f-display)}
+.leaflet-container{font-family:var(--f-body)}
+.picking #map{cursor:crosshair}
+@media (max-width:820px){
+  .app{grid-template-columns:1fr;grid-template-rows:55vh auto}
+  #map{grid-row:1}
+  aside{grid-row:2;border-right:0;border-top:1px solid var(--line);overflow:visible}
+  body{height:auto}
+  header .status{margin-left:0;width:100%}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <span class="shield">WA</span>
+  <div>
+    <h1>Commute Crash Risk</h1>
+    <div class="sub">Live federal crash records for Washington State, routed against your drive</div>
+  </div>
+  <div class="status" id="status">Loading crash records…</div>
+</header>
+
+<div class="app">
+  <aside>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="commute" id="tab-commute">Commute</button>
+      <button role="tab" aria-selected="false" data-tab="map" id="tab-map">Crash map</button>
+      <button role="tab" aria-selected="false" data-tab="method" id="tab-method">Method</button>
+    </div>
+
+    <!-- COMMUTE -->
+    <div class="pane" data-pane="commute">
+      <div class="group">
+        <h2>Your commute</h2>
+        <div class="addr">
+          <label for="from">From
+            <input id="from" autocomplete="off" placeholder="Address or place in WA">
+          </label>
+          <button class="pin" id="pinFrom" title="Pick start on map" aria-label="Pick start on map">A</button>
+          <div class="sugg" id="sugg-from" hidden></div>
+        </div>
+        <div class="addr">
+          <label for="to">To
+            <input id="to" autocomplete="off" placeholder="Address or place in WA">
+          </label>
+          <button class="pin" id="pinTo" title="Pick destination on map" aria-label="Pick destination on map">B</button>
+          <div class="sugg" id="sugg-to" hidden></div>
+        </div>
+        <div class="row">
+          <label for="depart">Leave at<input id="depart" type="time" value="07:30"></label>
+          <label for="ret">Return at<input id="ret" type="time" value="17:30"></label>
+        </div>
+        <div class="row">
+          <label for="days">Days per week<select id="days"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>7</option></select></label>
+          <label for="weeks">Weeks per year<input id="weeks" type="number" min="1" max="52" value="48"></label>
+        </div>
+        <label for="roundtrip" style="flex-direction:row;align-items:center;gap:8px"><input id="roundtrip" type="checkbox" checked style="width:auto"> Round trip (count the drive home)</label>
+      </div>
+
+      <div class="group">
+        <h2>About you</h2>
+        <div class="row">
+          <label for="age">Driver age<select id="age">
+            <option value="16-17">16–17</option><option value="18-19">18–19</option><option value="20-24">20–24</option><option value="25-29">25–29</option><option value="30-59" selected>30–59</option><option value="60-69">60–69</option><option value="70-79">70–79</option><option value="80+">80+</option></select></label>
+          <label for="vehicle">Vehicle<select id="vehicle"><option value="car" selected>Car / SUV / minivan</option><option value="truck">Pickup truck</option><option value="moto">Motorcycle</option></select></label>
+        </div>
+        <div class="row">
+          <label for="speed">Usual speed<select id="speed"><option value="0" selected>At or under limit</option><option value="5">~5 mph over</option><option value="10">10+ mph over</option></select></label>
+          <label for="phone">Phone while driving<select id="phone"><option value="none" selected>Never / hands-free</option><option value="some">Sometimes handheld</option><option value="often">Often text or browse</option></select></label>
+        </div>
+        <div class="row">
+          <label for="weather">Conditions<select id="weather"><option value="mix" selected>Year-round mix</option><option value="dry">Dry only</option><option value="rain">Rain / wet roads</option><option value="snow">Snow / ice</option></select></label>
+          <label for="belt">Seat belt / helmet<select id="belt"><option value="yes" selected>Always</option><option value="no">Not always</option></select></label>
+        </div>
+      </div>
+
+      <button class="go" id="go">Check this commute</button>
+      <div class="err" id="err" hidden></div>
+      <div id="results"></div>
+    </div>
+
+    <!-- MAP FILTERS -->
+    <div class="pane" data-pane="map" hidden>
+      <div class="group">
+        <h2>Fatal crash records shown</h2>
+        <div class="row">
+          <label for="yFrom">From year<select id="yFrom"></select></label>
+          <label for="yTo">To year<select id="yTo"></select></label>
+        </div>
+        <button class="go" id="reload" style="padding:9px">Load these years</button>
+        <div class="note">Source: NHTSA Fatality Analysis Reporting System (FARS), queried live from the US DOT geospatial server. Every crash in Washington where someone died within 30 days.</div>
+      </div>
+      <div class="group">
+        <h2>Display</h2>
+        <div class="chips">
+          <label><input type="radio" name="disp" value="points" checked> Points</label>
+          <label><input type="radio" name="disp" value="heat"> Heat map</label>
+        </div>
+      </div>
+      <div class="group">
+        <h2>Only show crashes involving</h2>
+        <div class="chips" id="filters">
+          <label><input type="checkbox" value="speed"> Speeding</label>
+          <label><input type="checkbox" value="alcohol"> Alcohol</label>
+          <label><input type="checkbox" value="ped"> Pedestrian</label>
+          <label><input type="checkbox" value="bike"> Cyclist</label>
+          <label><input type="checkbox" value="moto"> Motorcycle</label>
+          <label><input type="checkbox" value="young"> Driver 16–24</label>
+          <label><input type="checkbox" value="night"> Dark</label>
+          <label><input type="checkbox" value="depart"> Ran off road</label>
+        </div>
+        <div class="note">Multiple selections show crashes matching any of them.</div>
+      </div>
+      <div class="group">
+        <h2>In the current data</h2>
+        <div class="stat" id="stats"></div>
+      </div>
+      <div class="group">
+        <h2>Fatal crashes by hour of day</h2>
+        <div id="hourChart"></div>
+        <div class="note">Hours with your departure and return times are highlighted.</div>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--red)"></i>Fatal crash</span>
+        <span><i class="dot" style="background:var(--amber)"></i>Pedestrian / cyclist killed</span>
+      </div>
+    </div>
+
+    <!-- METHOD -->
+    <div class="pane method" data-pane="method" hidden>
+      <p>The estimate multiplies a Washington baseline crash rate by factors for your route and for you, then converts the expected number of crashes over your miles into a probability: <code>P = 1 − e<sup>−rate × miles</sup></code>.</p>
+      <h3>Baseline (Washington)</h3>
+      <ul>
+        <li>1.75 police-reported collisions per million vehicle miles (WSDOT, 2023), × 1.8 vehicles per collision ≈ 3.15 crash involvements per million miles for a typical driver.</li>
+        <li>About 30% of involvements include an injury.</li>
+        <li>Fatal crash involvement ≈ 1.67 per 100 million miles (FARS 2024: 674 fatal crashes, 60.65 billion miles driven, ~1.5 vehicles each).</li>
+      </ul>
+      <h3>Route factors</h3>
+      <ul>
+        <li><b>Road type mix.</b> Each stretch of the route is classed from the routing engine as interstate, highway, arterial or local street. Freeways have fewer crashes per mile driven; arterials have the most; rural highways have the highest share of deaths.</li>
+        <li><b>Local fatal-crash history.</b> Every FARS crash within 100 m of the route in the years loaded is counted, then compared with how many you'd expect on that road mix given typical Washington traffic volumes. The ratio is shrunk toward 1 so a single crash can't swing the result, and capped between 0.6× and 2.5×.</li>
+      </ul>
+      <h3>Personal factors</h3>
+      <ul>
+        <li><b>Age:</b> AAA Foundation crash involvement per mile driven by age group.</li>
+        <li><b>Time of day:</b> night driving roughly triples fatal crash risk per mile (NHTSA); rush hours raise fender-benders.</li>
+        <li><b>Weather:</b> rain raises crash rates about 70% and snow/ice about 85% (Qiu &amp; Nixon meta-analysis).</li>
+        <li><b>Phone:</b> handheld use roughly 2–4× crash risk (Virginia Tech naturalistic driving study).</li>
+        <li><b>Speed, vehicle and seat belt:</b> speeding raises both crash odds and severity; motorcycles raise fatal risk about 13× per mile; going unbelted raises the chance a crash kills or injures you.</li>
+      </ul>
+      <h3>Limits</h3>
+      <p>This is a statistical estimate for a typical driver with your characteristics, not a prediction. The crash map only contains fatal crashes, because Washington's full crash database is not published as a public API. Traffic volumes per road type are typical values, not measured counts on your exact roads. Treat the grade as a comparison tool: try different departure times or alternate routes and see which is safer.</p>
+      <h3>Data sources (live)</h3>
+      <ul>
+        <li><a href="https://geo.dot.gov/server/rest/services/NHTSA/FQAcc/MapServer" target="_blank" rel="noopener">NHTSA FARS crash layers, US DOT</a></li>
+        <li><a href="https://project-osrm.org/" target="_blank" rel="noopener">OSRM routing</a> on <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> data</li>
+        <li><a href="https://photon.komoot.io/" target="_blank" rel="noopener">Photon geocoder</a></li>
+        <li>Rates: <a href="https://wtsc.wa.gov/" target="_blank" rel="noopener">WA Traffic Safety Commission</a>, <a href="https://wsdot.wa.gov/" target="_blank" rel="noopener">WSDOT</a>, <a href="https://aaafoundation.org/" target="_blank" rel="noopener">AAA Foundation</a></li>
+      </ul>
+    </div>
+  </aside>
+  <div id="map" role="region" aria-label="Map of Washington fatal crashes"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script>
+"use strict";
+// ============ CONFIG ============
+const FARS = "https://geo.dot.gov/server/rest/services/NHTSA/FQAcc/MapServer/";
+const FIRST_YEAR = 2010, LAST_YEAR = 2024;
+const WA_BBOX = [-124.85, 45.54, -116.91, 49.01];
+const OSRM = "https://router.project-osrm.org/route/v1/driving/";
+const PHOTON = "https://photon.komoot.io/api/";
+
+// Baseline per vehicle-mile rates (see Method tab)
+const BASE = { any: 1.75e-6 * 1.8, injury: 1.75e-6 * 1.8 * 0.30, fatal: 674 / 60.65e9 * 1.5 };
+const FATAL_CRASH_PER_VMT = 674 / 60.65e9;
+
+// Road classes: relative crash-rate per mile vs WA average (a = any, f = fatal), assumed AADT, approx VMT share
+const CLASSES = {
+  interstate: { label: "Interstate / freeway", a: 0.70, f: 0.62, aadt: 90000, share: 0.38 },
+  highway:    { label: "Highway",              a: 0.85, f: 1.55, aadt: 14000, share: 0.17 },
+  arterial:   { label: "Arterial",             a: 1.45, f: 1.15, aadt: 20000, share: 0.35 },
+  local:      { label: "Local street",         a: 1.20, f: 0.70, aadt: 3000,  share: 0.10 },
+};
+// normalise so the VMT-weighted mean is exactly 1
+(() => { let sa = 0, sf = 0; for (const c of Object.values(CLASSES)) { sa += c.a * c.share; sf += c.f * c.share; }
+  for (const c of Object.values(CLASSES)) { c.a /= sa; c.f /= sf; } })();
+
+const AGE = { "16-17": [5.4, 3.1], "18-19": [2.8, 2.4], "20-24": [2.0, 1.7], "25-29": [1.33, 1.15],
+  "30-59": [0.85, 0.65], "60-69": [0.64, 0.75], "70-79": [0.9, 1.6], "80+": [1.6, 3.5] };
+const WEATHER = { mix: [1, 1], dry: [0.85, 0.97], rain: [1.45, 1.1], snow: [1.6, 0.95] };
+const PHONE = { none: [1, 1], some: [1.6, 1.6], often: [3.0, 3.0] };
+const SPEED = { 0: [1, 1], 5: [1.15, 1.35], 10: [1.6, 2.5] };
+const VEHICLE = { car: [1, 1, 1], truck: [1, 1, 1.1], moto: [1.2, 3.0, 13] }; // any, injury, fatal
+const BELT = { yes: [1, 1], no: [1.3, 1.8] }; // injury, fatal
+function todMult(h) { // [any, fatal]
+  if (h >= 22 || h < 5) return [1.6, 3.0];
+  if (h < 6) return [1.2, 1.8];
+  if (h < 9) return [1.15, 0.8];
+  if (h < 15) return [1.0, 0.85];
+  if (h < 19) return [1.25, 1.0];
+  return [1.2, 1.9];
+}
+
+// ============ STATE ============
+let crashes = [];          // {lat,lon,year,...}
+let crashLayer, heatLayer, routeLayer, hotLayer, markerA, markerB;
+const pts = { from: null, to: null };
+let picking = null;
+let routes = [], activeRoute = 0;
+
+const $ = id => document.getElementById(id);
+const statusEl = $("status");
+
+// ============ MAP ============
+const map = L.map("map", { preferCanvas: true, zoomControl: true }).setView([47.35, -120.7], 7);
+const dark = () => document.documentElement.dataset.theme === "dark" ||
+  (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+const tiles = L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark() ? "dark_all" : "light_all"}/{z}/{x}/{y}{r}.png`, {
+  maxZoom: 19, subdomains: "abcd",
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · Crashes: NHTSA FARS'
+}).addTo(map);
+const canvas = L.canvas({ padding: 0.3 });
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ============ DATA ============
+const FIELDS = "ST_CASE,YEAR,MONTH,DAY,HOUR,MINUTE,FATALS,PEDS,VE_TOTAL,TWAY_ID,TWAY_ID2,CITYNAME,COUNTYNAME,LGT_COND,WEATHER,A_SPCRA,A_POSBAC,A_PED,A_PEDAL,A_MC,A_D16_24,A_RD,A_INTSEC,LATITUDE,LONGITUDE";
+async function loadYear(y) {
+  const layer = y - 2009;
+  const url = `${FARS}${layer}/query?where=STATE%3D53&outFields=${FIELDS}&returnGeometry=false&f=json&resultRecordCount=2000`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`FARS ${y}: HTTP ${r.status}`);
+  const j = await r.json();
+  if (j.error) throw new Error(`FARS ${y}: ${j.error.message}`);
+  return (j.features || []).map(f => f.attributes).filter(a => a.LATITUDE > 40 && a.LATITUDE < 50 && a.LONGITUDE < -110)
+    .map(a => ({
+      lat: a.LATITUDE, lon: a.LONGITUDE, year: a.YEAR, month: a.MONTH, day: a.DAY, hour: a.HOUR, minute: a.MINUTE,
+      fatals: a.FATALS, peds: a.PEDS, veh: a.VE_TOTAL, road: tidyRoad(a.TWAY_ID), road2: tidyRoad(a.TWAY_ID2),
+      city: titleCase(a.CITYNAME), county: titleCase(String(a.COUNTYNAME || "").replace(/\s*\(\d+\)/, "")),
+      light: a.LGT_COND, weather: a.WEATHER,
+      speed: a.A_SPCRA === 1, alcohol: a.A_POSBAC === 1, ped: a.A_PED === 1, bike: a.A_PEDAL === 1,
+      moto: a.A_MC === 1, young: a.A_D16_24 === 1, depart: a.A_RD === 1, inter: a.A_INTSEC === 1,
+      night: a.LGT_COND === 2 || a.LGT_COND === 3 || a.LGT_COND === 6
+    }));
+}
+function tidyRoad(s) {
+  if (!s) return "";
+  s = String(s).replace(/^(IS|I)-?\s{0,}/i, "I-").replace(/^SR-?\s{0,}/i, "SR ").replace(/^US-?\s{0,}/i, "US ")
+    .replace(/^(CR|MU|LR|OT|TR)-/i, "").replace(/^I-0{0,}/, "I-").replace(/^SR 0{0,}/, "SR ").replace(/^US 0{0,}/, "US ");
+  if (/^(none|unknown|n\/a)$/i.test(s)) return "";
+  return /^(I-|SR |US )/.test(s) ? s : titleCase(s);
+}
+function titleCase(s) {
+  s = String(s || "");
+  if (/^not applicable|^unknown/i.test(s)) return "";
+  return s.toLowerCase().replace(/\b([a-z])/g, m => m.toUpperCase()).replace(/\b(Ne|Nw|Se|Sw|Sr|Us)\b/g, m => m.toUpperCase());
+}
+
+async function loadCrashes(y0, y1) {
+  statusEl.textContent = `Loading FARS ${y0}–${y1}…`;
+  const years = []; for (let y = y0; y <= y1; y++) years.push(y);
+  const cacheKey = `fars53:${y0}-${y1}:v1`;
+  try { const c = JSON.parse(localStorage.getItem(cacheKey) || "null"); if (c && Date.now() - c.t < 7 * 864e5) { crashes = c.d; done(); return; } } catch (e) {}
+  const parts = await Promise.all(years.map(loadYear));
+  crashes = parts.flat();
+  try { localStorage.setItem(cacheKey, JSON.stringify({ t: Date.now(), d: crashes })); } catch (e) {}
+  done();
+  function done() {
+    statusEl.textContent = `${crashes.length.toLocaleString()} fatal crashes · ${y0}–${y1} · NHTSA FARS`;
+    renderCrashes(); renderStats();
+    if (routes.length) analyzeAll();
+  }
+}
+
+const filters = new Set();
+function visibleCrashes() {
+  if (!filters.size) return crashes;
+  return crashes.filter(c => [...filters].some(f => c[f]));
+}
+function popupHtml(c) {
+  const d = new Date(c.year, c.month - 1, c.day);
+  const time = c.hour < 24 ? `${String(c.hour).padStart(2, "0")}:${String(c.minute < 60 ? c.minute : 0).padStart(2, "0")}` : "time unknown";
+  const tags = [c.speed && "speeding", c.alcohol && "alcohol", c.ped && "pedestrian", c.bike && "cyclist", c.moto && "motorcycle",
+    c.young && "driver 16–24", c.depart && "ran off road", c.inter && "intersection", c.night && "dark"].filter(Boolean);
+  const where = [c.road, c.road2].filter(Boolean).join(" at ");
+  return `<b>${c.fatals} killed</b> · ${d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}, ${time}<br>
+    ${where ? esc(where) + "<br>" : ""}${esc([c.city, c.county && c.county + " County"].filter(Boolean).join(", "))}<br>
+    ${c.veh} vehicle${c.veh === 1 ? "" : "s"}${c.peds ? `, ${c.peds} person${c.peds > 1 ? "s" : ""} on foot/bike` : ""}
+    ${tags.length ? `<br><small>${tags.join(" · ")}</small>` : ""}`;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m])); }
+
+function renderCrashes() {
+  if (crashLayer) map.removeLayer(crashLayer);
+  if (heatLayer) map.removeLayer(heatLayer);
+  const vis = visibleCrashes();
+  const mode = document.querySelector('input[name="disp"]:checked').value;
+  if (mode === "heat" && L.heatLayer) {
+    heatLayer = L.heatLayer(vis.map(c => [c.lat, c.lon, Math.min(c.fatals, 3)]), { radius: 14, blur: 16, maxZoom: 11, minOpacity: 0.35 }).addTo(map);
+  } else {
+    const red = css("--red"), amber = css("--amber");
+    crashLayer = L.layerGroup(vis.map(c => L.circleMarker([c.lat, c.lon], {
+      renderer: canvas, radius: 3 + Math.min(c.fatals, 4), weight: 1, color: "#00000055",
+      fillColor: (c.ped || c.bike) ? amber : red, fillOpacity: 0.75
+    }).bindPopup(() => popupHtml(c)))).addTo(map);
+  }
+  if (routeLayer) routeLayer.bringToFront?.();
+}
+function renderStats() {
+  const vis = visibleCrashes();
+  const yrs = new Set(crashes.map(c => c.year)).size || 1;
+  const killed = vis.reduce((s, c) => s + c.fatals, 0);
+  const pct = k => vis.length ? Math.round(100 * vis.filter(c => c[k]).length / vis.length) + "%" : "–";
+  $("stats").innerHTML = `
+    <div><b>${vis.length.toLocaleString()}</b><span>Fatal crashes</span></div>
+    <div><b>${killed.toLocaleString()}</b><span>People killed</span></div>
+    <div><b>${Math.round(vis.length / yrs)}</b><span>Per year</span></div>
+    <div><b>${pct("speed")}</b><span>Speeding</span></div>
+    <div><b>${pct("alcohol")}</b><span>Alcohol</span></div>
+    <div><b>${pct("night")}</b><span>In the dark</span></div>`;
+  renderHourChart(vis);
+}
+function renderHourChart(vis) {
+  const counts = new Array(24).fill(0);
+  vis.forEach(c => { if (c.hour < 24) counts[c.hour]++; });
+  const max = Math.max(1, ...counts);
+  const hl = new Set([hourOf($("depart").value), hourOf($("ret").value)]);
+  const W = 340, H = 120, pad = 18, bw = (W - 8) / 24;
+  let bars = "";
+  counts.forEach((n, h) => {
+    const bh = (H - pad - 8) * n / max;
+    bars += `<rect x="${4 + h * bw + 1}" y="${H - pad - bh}" width="${bw - 2}" height="${bh}" rx="1.5" fill="${hl.has(h) ? css("--amber") : css("--sign")}" opacity="${hl.has(h) ? 1 : 0.75}"><title>${h}:00 – ${n} crashes</title></rect>`;
+  });
+  const lbl = [0, 6, 12, 18, 23].map(h => `<text x="${4 + h * bw + bw / 2}" y="${H - 4}" text-anchor="middle">${h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? h + "a" : (h - 12) + "p"}</text>`).join("");
+  $("hourChart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Fatal crashes by hour"><line x1="4" x2="${W - 4}" y1="${H - pad}" y2="${H - pad}" stroke="${css("--line")}"/>${bars}${lbl}</svg>`;
+}
+const hourOf = v => parseInt((v || "0").split(":")[0], 10) || 0;
+
+// ============ GEOCODING ============
+function setupAddr(key) {
+  const input = $(key), box = $("sugg-" + key);
+  let t, ctrl;
+  input.addEventListener("input", () => {
+    pts[key] = null; clearTimeout(t);
+    const q = input.value.trim();
+    if (q.length < 3) { box.hidden = true; return; }
+    t = setTimeout(async () => {
+      ctrl?.abort(); ctrl = new AbortController();
+      try {
+        const r = await fetch(`${PHOTON}?q=${encodeURIComponent(q)}&limit=6&bbox=${WA_BBOX.join(",")}&lang=en`, { signal: ctrl.signal });
+        const j = await r.json();
+        const feats = (j.features || []).filter(f => !f.properties.state || /washington/i.test(f.properties.state));
+        if (!feats.length) { box.innerHTML = `<button disabled>No match in Washington</button>`; box.hidden = false; return; }
+        box.innerHTML = feats.map((f, i) => `<button data-i="${i}">${esc(placeName(f.properties))}<br><small>${esc(placeSub(f.properties))}</small></button>`).join("");
+        box.hidden = false;
+        box.querySelectorAll("button[data-i]").forEach(b => b.onclick = () => {
+          const f = feats[+b.dataset.i];
+          setPoint(key, f.geometry.coordinates[1], f.geometry.coordinates[0], placeName(f.properties));
+          box.hidden = true;
+        });
+      } catch (e) { if (e.name !== "AbortError") { box.innerHTML = `<button disabled>Address search unavailable</button>`; box.hidden = false; } }
+    }, 300);
+  });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { const b = box.querySelector("button[data-i]"); if (b) { e.preventDefault(); b.click(); } } if (e.key === "Escape") box.hidden = true; });
+  input.addEventListener("blur", () => setTimeout(() => box.hidden = true, 200));
+}
+function placeName(p) {
+  const street = [p.housenumber, p.street].filter(Boolean).join(" ");
+  return p.name && street && p.name !== street ? `${p.name}, ${street}` : (p.name || street || "Unnamed place");
+}
+function placeSub(p) { return [p.city || p.county, p.state, p.postcode].filter(Boolean).join(", "); }
+
+function setPoint(key, lat, lon, label) {
+  if (lon < WA_BBOX[0] || lon > WA_BBOX[2] || lat < WA_BBOX[1] || lat > WA_BBOX[3]) { showErr("That point is outside Washington State."); return; }
+  pts[key] = { lat, lon, label };
+  $(key).value = label;
+  const m = L.marker([lat, lon], { icon: pinIcon(key === "from" ? "A" : "B"), draggable: true, keyboard: true, title: key === "from" ? "Start" : "Destination" });
+  m.on("dragend", () => { const ll = m.getLatLng(); pts[key] = { lat: ll.lat, lon: ll.lng, label: `${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}` }; $(key).value = pts[key].label; if (pts.from && pts.to) runCommute(); });
+  if (key === "from") { markerA?.remove(); markerA = m.addTo(map); } else { markerB?.remove(); markerB = m.addTo(map); }
+}
+function pinIcon(t) {
+  return L.divIcon({ className: "", iconSize: [28, 28], iconAnchor: [14, 14],
+    html: `<div style="width:28px;height:28px;border-radius:6px;background:${css("--sign")};color:#fff;border:2px solid #fff;box-shadow:0 2px 6px #0006;display:grid;place-items:center;font:900 14px var(--f-display)">${t}</div>` });
+}
+["from", "to"].forEach(setupAddr);
+function startPick(key) {
+  picking = picking === key ? null : key;
+  $("pinFrom").classList.toggle("active", picking === "from");
+  $("pinTo").classList.toggle("active", picking === "to");
+  document.body.classList.toggle("picking", !!picking);
+}
+$("pinFrom").onclick = () => startPick("from");
+$("pinTo").onclick = () => startPick("to");
+map.on("click", e => {
+  if (!picking) return;
+  const key = picking; startPick(key);
+  setPoint(key, e.latlng.lat, e.latlng.lng, `${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)}`);
+  if (pts.from && pts.to) runCommute();
+});
+
+// ============ ROUTING + ANALYSIS ============
+function showErr(m) { $("err").textContent = m; $("err").hidden = !m; }
+
+async function runCommute() {
+  showErr("");
+  if (!pts.from || !pts.to) { showErr("Pick a start and a destination from the suggestions, or drop pins A and B on the map."); return; }
+  const btn = $("go"); btn.disabled = true; btn.textContent = "Routing…";
+  try {
+    const url = `${OSRM}${pts.from.lon},${pts.from.lat};${pts.to.lon},${pts.to.lat}?overview=false&steps=true&geometries=geojson&alternatives=3`;
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j.code !== "Ok" || !j.routes?.length) throw new Error(j.message || "No drivable route found between those points.");
+    routes = j.routes.map(buildRoute);
+    activeRoute = 0;
+    analyzeAll();
+  } catch (e) {
+    showErr("Couldn't get a route: " + e.message);
+  } finally { btn.disabled = false; btn.textContent = "Check this commute"; }
+}
+$("go").onclick = runCommute;
+
+// projection to local metres
+const LAT0 = 47.3, KX = Math.cos(LAT0 * Math.PI / 180) * 111320, KY = 110574;
+function buildRoute(rt) {
+  const segs = []; // {x1,y1,x2,y2,len,cls,cum,name}
+  let cum = 0;
+  const latlngs = [];
+  const classMiles = { interstate: 0, highway: 0, arterial: 0, local: 0 };
+  const names = {};
+  for (const leg of rt.legs) for (const st of leg.steps) {
+    const coords = st.geometry.coordinates;
+    if (st.distance <= 0 || coords.length < 2) continue;
+    const kmh = st.duration > 0 ? st.distance / st.duration * 3.6 : 50;
+    const ref = st.ref || "";
+    let cls;
+    if (/\bI[ -]?\d/.test(ref)) cls = "interstate";
+    else if (kmh >= 80 && /(SR|US|WA)[ -]?\d/.test(ref)) cls = kmh >= 92 ? "interstate" : "highway";
+    else if (kmh >= 72) cls = "highway";
+    else if (kmh >= 42) cls = "arterial";
+    else cls = "local";
+    classMiles[cls] += st.distance / 1609.34;
+    const nm = ref ? ref.split(";")[0].replace(/^I /, "I-") : st.name;
+    if (nm) names[nm] = (names[nm] || 0) + st.distance;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const [lo1, la1] = coords[i], [lo2, la2] = coords[i + 1];
+      const x1 = lo1 * KX, y1 = la1 * KY, x2 = lo2 * KX, y2 = la2 * KY;
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      if (len === 0) continue;
+      segs.push({ x1, y1, x2, y2, len, cls, cum, name: nm || st.name || "" });
+      cum += len;
+    }
+    coords.forEach(c => latlngs.push([c[1], c[0]]));
+  }
+  const via = Object.entries(names).sort((a, b) => b[1] - a[1]).slice(0, 2).map(n => n[0]).join(" · ");
+  return { segs, latlngs, miles: rt.distance / 1609.34, minutes: rt.duration / 60, classMiles, via };
+}
+
+function analyzeRoute(R) {
+  const BUF = 100; // metres
+  const yrs = new Set(crashes.map(c => c.year)).size || 1;
+  // bbox prefilter
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (const s of R.segs) { minx = Math.min(minx, s.x1, s.x2); maxx = Math.max(maxx, s.x1, s.x2); miny = Math.min(miny, s.y1, s.y2); maxy = Math.max(maxy, s.y1, s.y2); }
+  const near = [];
+  for (const c of crashes) {
+    const px = c.lon * KX, py = c.lat * KY;
+    if (px < minx - BUF || px > maxx + BUF || py < miny - BUF || py > maxy + BUF) continue;
+    let best = Infinity, along = 0, seg = null;
+    for (const s of R.segs) {
+      if (px < Math.min(s.x1, s.x2) - BUF || px > Math.max(s.x1, s.x2) + BUF || py < Math.min(s.y1, s.y2) - BUF || py > Math.max(s.y1, s.y2) + BUF) continue;
+      const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+      let t = ((px - s.x1) * dx + (py - s.y1) * dy) / (s.len * s.len); t = Math.max(0, Math.min(1, t));
+      const d = Math.hypot(px - (s.x1 + t * dx), py - (s.y1 + t * dy));
+      if (d < best) { best = d; along = s.cum + t * s.len; seg = s; }
+    }
+    if (best <= BUF) near.push({ c, along, seg });
+  }
+  // expected fatal crashes on this road mix
+  let expected = 0, aMix = 0, fMix = 0, miles = 0;
+  for (const [k, mi] of Object.entries(R.classMiles)) {
+    const C = CLASSES[k];
+    expected += mi * C.aadt * 365 * yrs * FATAL_CRASH_PER_VMT * C.f;
+    aMix += mi * C.a; fMix += mi * C.f; miles += mi;
+  }
+  aMix /= miles || 1; fMix /= miles || 1;
+  const K = 1.5;
+  const hot = Math.max(0.6, Math.min(2.5, (near.length + K) / (expected + K)));
+  // hotspots: 1-mile bins
+  const bins = {};
+  for (const n of near) { const b = Math.floor(n.along / 1609.34); (bins[b] ||= []).push(n); }
+  const hotspots = Object.entries(bins).filter(([, v]) => v.length >= 2).sort((a, b) => b[1].length - a[1].length).slice(0, 5)
+    .map(([b, v]) => {
+      const roads = {}; v.forEach(n => { const r = n.c.road || n.seg.name; if (r) roads[r] = (roads[r] || 0) + 1; });
+      const road = Object.entries(roads).sort((a, b) => b[1] - a[1])[0]?.[0] || v[0].seg.name || "Unnamed road";
+      const lat = v.reduce((s, n) => s + n.c.lat, 0) / v.length, lon = v.reduce((s, n) => s + n.c.lon, 0) / v.length;
+      return { mile: +b, n: v.length, killed: v.reduce((s, n) => s + n.c.fatals, 0), road, lat, lon, pts: v.map(n => n.c) };
+    });
+  return { near, expected, hot, aMix, fMix, hotspots, yrs };
+}
+
+function personal() {
+  const age = AGE[$("age").value], w = WEATHER[$("weather").value], ph = PHONE[$("phone").value];
+  const sp = SPEED[$("speed").value], v = VEHICLE[$("vehicle").value], b = BELT[$("belt").value];
+  const t1 = todMult(hourOf($("depart").value)), t2 = todMult(hourOf($("ret").value));
+  const rt = $("roundtrip").checked;
+  const tod = rt ? [(t1[0] + t2[0]) / 2, (t1[1] + t2[1]) / 2] : t1;
+  return {
+    any: age[0] * w[0] * ph[0] * sp[0] * v[0] * tod[0],
+    injury: age[0] * w[0] * ph[0] * Math.sqrt(sp[0] * sp[1]) * v[1] * tod[0] * b[0],
+    fatal: age[1] * w[1] * ph[1] * sp[1] * v[2] * tod[1] * b[1],
+    parts: { age, w, ph, sp, v, b, tod }
+  };
+}
+
+function riskFor(R, A, P) {
+  const rt = $("roundtrip").checked;
+  const trips = (+$("days").value) * Math.max(1, Math.min(52, +$("weeks").value || 48)) * (rt ? 2 : 1);
+  const rate = {
+    any: BASE.any * A.aMix * Math.pow(A.hot, 0.5) * P.any,
+    injury: BASE.injury * Math.sqrt(A.aMix * A.fMix) * Math.pow(A.hot, 0.75) * P.injury,
+    fatal: BASE.fatal * A.fMix * A.hot * P.fatal,
+  };
+  const out = {};
+  for (const k in rate) {
+    const perTrip = 1 - Math.exp(-rate[k] * R.miles);
+    out[k] = { perTrip, year: 1 - Math.exp(-rate[k] * R.miles * trips), ten: 1 - Math.exp(-rate[k] * R.miles * trips * 10) };
+  }
+  out.trips = trips; out.milesYear = R.miles * trips;
+  out.routeIndex = Math.sqrt(A.aMix * Math.pow(A.hot, 0.5) * A.fMix * A.hot);
+  out.personalIndex = Math.sqrt(P.any * P.fatal);
+  return out;
+}
+
+function analyzeAll() {
+  if (!routes.length) return;
+  const P = personal();
+  routes.forEach(R => { R.A = analyzeRoute(R); R.risk = riskFor(R, R.A, P); });
+  // rank so the default selection is the fastest but alt chips show risk
+  drawRoutes(); renderResults();
+}
+
+function grade(i) {
+  if (i < 0.8) return ["Lower than average", "b-low"];
+  if (i < 1.2) return ["About average", "b-avg"];
+  if (i < 1.7) return ["Elevated", "b-elev"];
+  return ["High", "b-high"];
+}
+
+function drawRoutes() {
+  routeLayer?.remove(); hotLayer?.remove();
+  routeLayer = L.layerGroup().addTo(map); hotLayer = L.layerGroup().addTo(map);
+  routes.forEach((R, i) => {
+    if (i === activeRoute) return;
+    L.polyline(R.latlngs, { color: css("--muted"), weight: 5, opacity: 0.55 }).on("click", () => { activeRoute = i; drawRoutes(); renderResults(); }).addTo(routeLayer);
+  });
+  const R = routes[activeRoute];
+  L.polyline(R.latlngs, { color: "#ffffff", weight: 9, opacity: 0.9 }).addTo(routeLayer);
+  L.polyline(R.latlngs, { color: css("--sign"), weight: 5.5, opacity: 1 }).addTo(routeLayer);
+  R.A.near.forEach(n => L.circleMarker([n.c.lat, n.c.lon], { radius: 7, weight: 2, color: "#fff", fillColor: css("--red"), fillOpacity: 1 }).bindPopup(popupHtml(n.c)).addTo(hotLayer));
+  map.fitBounds(L.latLngBounds(R.latlngs), { padding: [30, 30] });
+}
+
+const pct = p => p >= 0.995 ? ">99%" : p < 0.0001 ? (p * 100).toFixed(4) + "%" : p < 0.01 ? (p * 100).toFixed(2) + "%" : p < 0.1 ? (p * 100).toFixed(1) + "%" : Math.round(p * 100) + "%";
+const oneIn = p => { const n = 1 / p; return "1 in " + (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e4 ? Math.round(n / 1000) + "k" : Math.round(n).toLocaleString()); };
+const mult = x => { const cls = x > 1.05 ? "up" : x < 0.95 ? "down" : ""; return `<span class="${cls}">×${x.toFixed(2)}</span>`; };
+
+function renderResults() {
+  const R = routes[activeRoute], A = R.A, K = R.risk, P = personal();
+  const [gLabel, gCls] = grade(K.routeIndex);
+  const [pLabel, pCls] = grade(K.personalIndex);
+  const yearsTo = 1 / -Math.log(1 - K.any.year);
+  const alts = routes.length > 1 ? `<div class="group"><h2>Routes</h2><div class="alts">${routes.map((r, i) => {
+    const [g] = grade(r.risk.routeIndex);
+    return `<button aria-pressed="${i === activeRoute}" data-i="${i}">${i === 0 ? "Fastest" : "Alt " + i} · ${Math.round(r.minutes)} min · ${g.toLowerCase()}</button>`; }).join("")}</div></div>` : "";
+  const cm = R.classMiles;
+  const mixRows = Object.entries(cm).filter(([, m]) => m > 0.05).map(([k, m]) => `<span>${CLASSES[k].label}</span><span>${m.toFixed(1)} mi</span>`).join("");
+  const p = P.parts;
+  $("results").innerHTML = `
+  <div class="verdict" style="border-color:var(--${gCls === "b-high" ? "red" : gCls === "b-elev" ? "warn" : gCls === "b-low" ? "ok" : "sign"})">
+    <div class="top"><span class="badge ${gCls}">${gLabel} route</span><span class="route">${R.miles.toFixed(1)} mi · ${Math.round(R.minutes)} min${R.via ? " · via " + esc(R.via) : ""}</span></div>
+    <div><div class="big">${pct(K.any.year)} <small>chance of a crash this year</small></div>
+    <div class="note" style="margin-top:6px">${K.trips} trips, ${Math.round(K.milesYear).toLocaleString()} miles a year. At this rate you'd expect a crash on this commute about once every ${yearsTo >= 100 ? Math.round(yearsTo) : yearsTo.toFixed(1)} years.</div></div>
+    <table class="odds">
+      <thead><tr><th>Outcome</th><th>Per trip</th><th>Per year</th><th>10 years</th></tr></thead>
+      <tbody>
+        <tr><td>Any reported crash</td><td>${oneIn(K.any.perTrip)}</td><td>${pct(K.any.year)}</td><td>${pct(K.any.ten)}</td></tr>
+        <tr><td>Injury crash</td><td>${oneIn(K.injury.perTrip)}</td><td>${pct(K.injury.year)}</td><td>${pct(K.injury.ten)}</td></tr>
+        <tr><td>Fatal crash</td><td>${oneIn(K.fatal.perTrip)}</td><td>${pct(K.fatal.year)}</td><td>${pct(K.fatal.ten)}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  ${alts}
+  <div class="group">
+    <h2>Why: the road</h2>
+    <div class="factors">
+      ${mixRows}
+      <span>Road-type mix vs WA average</span>${mult(A.aMix)}
+      <span>Fatal crashes within 100 m (${A.yrs} yr)</span><span>${A.near.length} found · ${A.expected.toFixed(1)} expected</span>
+      <span>Local crash-history factor</span>${mult(A.hot)}
+    </div>
+  </div>
+  <div class="group">
+    <h2>Why: you <span class="badge ${pCls}" style="margin-left:6px;font-size:10px;padding:2px 6px">${pLabel}</span></h2>
+    <div class="factors">
+      <span>Age ${esc($("age").value)}</span>${mult(Math.sqrt(p.age[0] * p.age[1]))}
+      <span>Time of day</span>${mult(Math.sqrt(p.tod[0] * p.tod[1]))}
+      <span>Conditions</span>${mult(Math.sqrt(p.w[0] * p.w[1]))}
+      <span>Phone use</span>${mult(p.ph[0])}
+      <span>Speed</span>${mult(Math.sqrt(p.sp[0] * p.sp[1]))}
+      <span>Vehicle (fatal risk)</span>${mult(p.v[2])}
+      <span>Seat belt / helmet (fatal)</span>${mult(p.b[1])}
+    </div>
+    <div class="note">Factors above 1 raise your odds. Change them in the form; results update instantly.</div>
+  </div>
+  <div class="group">
+    <h2>Deadliest stretches on this route</h2>
+    ${A.hotspots.length ? `<div class="hot">${A.hotspots.map((h, i) => `<button data-h="${i}"><span class="mi">mi ${h.mile}</span><span>${esc(h.road)}</span><span class="n">${h.n} crashes · ${h.killed} killed</span></button>`).join("")}</div>`
+      : `<div class="note">No stretch of this route had two or more fatal crashes within 100 m and 1 mile of each other in the years loaded.</div>`}
+  </div>`;
+  $("results").querySelectorAll(".alts button").forEach(b => b.onclick = () => { activeRoute = +b.dataset.i; drawRoutes(); renderResults(); });
+  $("results").querySelectorAll(".hot button").forEach(b => b.onclick = () => {
+    const h = A.hotspots[+b.dataset.h];
+    map.fitBounds(L.latLngBounds(h.pts.map(c => [c.lat, c.lon])).pad(0.6), { maxZoom: 16 });
+    if (innerWidth < 820) $("map").scrollIntoView({ behavior: "smooth" });
+  });
+}
+
+// recompute instantly when personal inputs change
+["age", "vehicle", "speed", "phone", "weather", "belt", "depart", "ret", "days", "weeks", "roundtrip"].forEach(id =>
+  $(id).addEventListener("change", () => { if (routes.length) { routes.forEach(R => R.risk = riskFor(R, R.A, personal())); renderResults(); } renderHourChart(visibleCrashes()); }));
+
+// ============ TABS + FILTERS ============
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll("[data-pane]").forEach(p => p.hidden = p.dataset.pane !== b.dataset.tab);
+  try { localStorage.setItem("wa-tab", b.dataset.tab); } catch (e) {}
+});
+$("filters").addEventListener("change", e => { e.target.checked ? filters.add(e.target.value) : filters.delete(e.target.value); renderCrashes(); renderStats(); });
+document.querySelectorAll('input[name="disp"]').forEach(r => r.addEventListener("change", renderCrashes));
+for (let y = FIRST_YEAR; y <= LAST_YEAR; y++) { $("yFrom").add(new Option(y, y)); $("yTo").add(new Option(y, y)); }
+$("yFrom").value = LAST_YEAR - 4; $("yTo").value = LAST_YEAR;
+$("reload").onclick = () => {
+  let a = +$("yFrom").value, b = +$("yTo").value; if (a > b) [a, b] = [b, a];
+  loadCrashes(a, b).catch(fail);
+};
+function fail(e) { statusEl.textContent = "Crash data unavailable"; showErr("Couldn't load crash records from the US DOT server (" + e.message + "). Check your connection and reload the page."); }
+
+// ============ BOOT: example commute ============
+setPoint("from", 47.8159, -122.2950, "Lynnwood City Center (example)");
+setPoint("to", 47.6150, -122.2010, "Downtown Bellevue (example)");
+loadCrashes(LAST_YEAR - 4, LAST_YEAR).then(runCommute).catch(fail);
+</script>
+</body>
+</html>
