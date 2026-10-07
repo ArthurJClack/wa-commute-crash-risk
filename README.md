@@ -27,7 +27,7 @@ Baselines: 1.75 police-reported collisions per million vehicle miles (WSDOT, 202
 | Fatal crash records | [NHTSA FARS on the US DOT map server](https://geo.dot.gov/server/rest/services/NHTSA/FQAcc/MapServer) |
 | Routing | [OSRM](https://project-osrm.org/) on OpenStreetMap |
 | Address search | [Photon](https://photon.komoot.io/) on OpenStreetMap |
-| Base map | [CARTO](https://carto.com/attributions) / OpenStreetMap |
+| Base map | [Esri World Gray Canvas](https://services.arcgisonline.com/arcgis/rest/services/Canvas) |
 
 ## Limits
 
